@@ -4,9 +4,10 @@ import os
 import abc
 import logging
 import traceback
+import multiprocessing as mp
 
 # own files
-from Backtest.indicators import SMA
+from Backtest.indicators import SMA, ATR
 from Backtest.data_reader import DataReader
 from auto_trading.automated_trading import _setup_log
 # import database_stuff as db
@@ -51,8 +52,10 @@ class Backtest(abc.ABC):
         self.log.info("Backtester started!")
         self.in_trade = {"long":0, "short":0}
         self.universe_ranking = pd.DataFrame()
+        self.pool = mp.Pool(12)
+        self.avail_stocks = None
 
-    def preprocessing(self, data):
+    def preprocessing(self, df, stock):
         """
         Called once before running through the data.
         Should be used to generate values that need to be known prior running logic such as ranking among asset classes.
@@ -61,6 +64,12 @@ class Backtest(abc.ABC):
         Inputs: self + all data that will be used for the backtest
         """
         pass
+
+
+    # def _preprocessing(self, data):
+    #     _df = data._read_hdf(stock)
+    #     df = self.preprocessing(_df, stock)
+    #     return df
 
     def postprocessing(self, data):
         """
@@ -71,12 +80,26 @@ class Backtest(abc.ABC):
         """
         pass
 
-    def run(self, data):
+    def run(self, data, type_="backtest"):
         try:   
             self.runs_at = dt.now()
-            self._prepare_data(data)
-            self.preprocessing(data)
-            self._run_portfolio()
+            self.avail_stocks = list(data.data.keys())
+            self.avail_stocks = self.avail_stocks[:10]
+
+            if type_ != "backtest":
+                self._prepare_data(data)
+
+            # passing Settings.read_from_csv_path or reading it directly in the function 
+            # results in File does not exist error
+            # self.path = r"D:\HDF5\stocks.h5"
+            self.path = Settings.read_from_csv_path
+            
+            for stock in self.avail_stocks:
+                df = self.pool.apply_async(read_data, args=(self.path, stock, data.type)).get()
+                uni_rank = self.preprocessing(df, stock)
+                self.universe_ranking = pd.concat([self.universe_ranking, uni_rank])
+
+            self._run_portfolio(data)
         except Exception as e:
             print(e)
             traceback.print_exc()
@@ -84,7 +107,7 @@ class Backtest(abc.ABC):
             
 
     @abc.abstractmethod
-    def logic(self, current_asset):
+    def logic(self, df, stock):
         pass
 
     def _prepare_data(self, data):
@@ -109,7 +132,7 @@ class Backtest(abc.ABC):
             self.data[name] = temp     
             
 
-    def _prepricing(self):
+    def _prepricing(self, stock):
         """
         Loop through files
         Generate signals
@@ -118,35 +141,60 @@ class Backtest(abc.ABC):
         Save them into common classes agg_*
         """
                                                            
-        for name in self.data:
-            current_asset = self.data[name]
-            
-            # strategy logic
-            # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
-            self.cond = Cond()
-            self.logic(name)
-            self.postprocessing(name)
-            self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
-            self.cond._combine() # combine all conds into all
-            # if buyCond is None and shortCond is None:
-            #     raise Exception("You have to specify buy or short condition. Neither was specified.")
-            ################################
+        # for name in self.data:
+        # current_asset = data._read_hdf(data)
+        
+        # strategy logic
+        # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
+        self.cond = Cond()
+        
+        df = self.pool.apply_async(read_data, args=(self.path, stock, data.type)).get()
+        self.cond.buy, self.cond.sell, self.cond.short, self.cond.cover = self.logic(df, stock)
+        # self.postprocessing(data)
+        self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        self.cond._combine() # combine all conds into all
+        # if buyCond is None and shortCond is None:
+        #     raise Exception("You have to specify buy or short condition. Neither was specified.")
+        ################################
 
-            rep = Repeater(current_asset, name, self.cond.all)
+        rep = Repeater(df, stock, self.cond.all)
 
-            # find trade_signals and trans_prices for an asset
-            trade_signals = TradeSignal(rep)
-            trans_prices = TransPrice(rep, trade_signals)
-            trades_current_asset = Trades(rep, trade_signals, trans_prices)
+        # find trade_signals and trans_prices for an asset
+        trade_signals = TradeSignal(rep)
+        trans_prices = TransPrice(rep, trade_signals)
+        trades_current_asset = Trades(rep, trade_signals, trans_prices)
 
-            # save trade_signals for portfolio level
-            # self.agg_trade_signals.buys = self._aggregate(self.agg_trade_signals.buys, trade_signals.buyCond)
-            # self.agg_trade_signals.sells = self._aggregate(self.agg_trade_signals.sells, trade_signals.sellCond)
-            # self.agg_trade_signals.shorts = self._aggregate(self.agg_trade_signals.shorts, trade_signals.shortCond)
-            # self.agg_trade_signals.covers = self._aggregate(self.agg_trade_signals.covers, trade_signals.coverCond)
-            # self.agg_trade_signals.all = self._aggregate(self.agg_trade_signals.all, trade_signals.all)
+        # save trade_signals for portfolio level
+        # self.agg_trade_signals.buys = self._aggregate(self.agg_trade_signals.buys, trade_signals.buyCond)
+        # self.agg_trade_signals.sells = self._aggregate(self.agg_trade_signals.sells, trade_signals.sellCond)
+        # self.agg_trade_signals.shorts = self._aggregate(self.agg_trade_signals.shorts, trade_signals.shortCond)
+        # self.agg_trade_signals.covers = self._aggregate(self.agg_trade_signals.covers, trade_signals.coverCond)
+        # self.agg_trade_signals.all = self._aggregate(self.agg_trade_signals.all, trade_signals.all)
 
-            # save trans_prices for portfolio level
+        # save trans_prices for portfolio level
+        # self.agg_trans_prices.buyPrice = self._aggregate(self.agg_trans_prices.buyPrice, trans_prices.buyPrice)
+        # self.agg_trans_prices.sellPrice = self._aggregate(self.agg_trans_prices.sellPrice, trans_prices.sellPrice)
+        # self.agg_trans_prices.shortPrice = self._aggregate(self.agg_trans_prices.shortPrice, trans_prices.shortPrice)
+        # self.agg_trans_prices.coverPrice = self._aggregate(self.agg_trans_prices.coverPrice, trans_prices.coverPrice)
+        # self.agg_trades.priceFluctuation_dollar = self._aggregate(self.agg_trades.priceFluctuation_dollar,
+        #                                                         trades_current_asset.priceFluctuation_dollar)
+        # self.agg_trades.trades = self._aggregate(self.agg_trades.trades, trades_current_asset.trades, ax=0)
+        # self.agg_trades.inTradePrice = self._aggregate(self.agg_trades.inTradePrice, trades_current_asset.inTradePrice)
+        return trans_prices, trades_current_asset
+
+    @staticmethod
+    def _aggregate(agg_df, df, ax=1):
+        return pd.concat([agg_df, df], axis=ax)        
+
+    def _run_portfolio(self, data):
+        """
+        Calculate profit and loss for the stretegy
+        """
+
+        # prepare data for portfolio
+        for stock in self.avail_stocks:
+            trans_prices, trades_current_asset = self._prepricing(stock)
+
             self.agg_trans_prices.buyPrice = self._aggregate(self.agg_trans_prices.buyPrice, trans_prices.buyPrice)
             self.agg_trans_prices.sellPrice = self._aggregate(self.agg_trans_prices.sellPrice, trans_prices.sellPrice)
             self.agg_trans_prices.shortPrice = self._aggregate(self.agg_trans_prices.shortPrice, trans_prices.shortPrice)
@@ -154,19 +202,7 @@ class Backtest(abc.ABC):
             self.agg_trades.priceFluctuation_dollar = self._aggregate(self.agg_trades.priceFluctuation_dollar,
                                                                     trades_current_asset.priceFluctuation_dollar)
             self.agg_trades.trades = self._aggregate(self.agg_trades.trades, trades_current_asset.trades, ax=0)
-            # self.agg_trades.inTradePrice = self._aggregate(self.agg_trades.inTradePrice, trades_current_asset.inTradePrice)
-
-    @staticmethod
-    def _aggregate(agg_df, df, ax=1):
-        return pd.concat([agg_df, df], axis=ax)        
-
-    def _run_portfolio(self):
-        """
-        Calculate profit and loss for the stretegy
-        """
-        # prepare data for portfolio
-        self._prepricing()
-
+        
         # prepare portfolio level
         # copy index and column names for weights
         self.port.weights = pd.DataFrame(
@@ -538,7 +574,7 @@ class TradeSignal:
         self.shortCond = _find_signals(rep.allCond["Short"])
 
         # keeping it here for now
-        from Backtest.indicators import ATR
+        
         atr = ATR(rep.data, 14)
 
         self._apply_stop("buy", self.buyCond, rep, atr()*2)
@@ -878,6 +914,23 @@ def _remove_dups(data):
 
 def _find_signals(df):
     return df.where(df != df.shift(1).fillna(df[0])).shift(0)
+
+def _read_hdf(path, key):
+    print(f"Reading stock: {key}, process_id: {os.getpid()}")
+    df = pd.read_hdf(path, key)
+    return df
+
+def _read_csv(path, key):
+    print(f"Reading stock: {key}, process_id: {os.getpid()}")
+    df = pd.read_csv(path + "\\" + key)
+    return df
+
+def read_data(path, key, type_):
+    if type_ == "hdf":
+        return _read_hdf(path, key)
+    elif type_ == "csv":
+        return _read_csv(path, key)
+
 
 if __name__ == "__main__":
     print("=======================")
