@@ -146,18 +146,18 @@ class Backtest(abc.ABC):
         
         # strategy logic
         # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
-        self.cond = Cond()
+        cond = Cond()
         
         df = self.pool.apply_async(read_data, args=(self.path, stock, data.type)).get()
-        self.cond.buy, self.cond.sell, self.cond.short, self.cond.cover = self.logic(df, stock)
+        cond.buy, cond.sell, cond.short, cond.cover = self.logic(df, stock)
         # self.postprocessing(data)
-        self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
-        self.cond._combine() # combine all conds into all
+        cond.buy.name, cond.sell.name, cond.short.name, cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        cond._combine() # combine all conds into all
         # if buyCond is None and shortCond is None:
         #     raise Exception("You have to specify buy or short condition. Neither was specified.")
         ################################
 
-        rep = Repeater(df, stock, self.cond.all)
+        rep = Repeater(df, stock, cond.all)
 
         # find trade_signals and trans_prices for an asset
         trade_signals = TradeSignal(rep)
