@@ -54,6 +54,7 @@ class Backtest(abc.ABC):
         self.universe_ranking = pd.DataFrame()
         self.pool = mp.Pool(12)
         self.avail_stocks = None
+        self.data_type = None
 
     def preprocessing(self, df, stock):
         """
@@ -85,6 +86,7 @@ class Backtest(abc.ABC):
             self.runs_at = dt.now()
             self.avail_stocks = list(data.data.keys())
             self.avail_stocks = self.avail_stocks[:10]
+            self.data_type = data.type
 
             if type_ != "backtest":
                 self._prepare_data(data)
@@ -146,18 +148,18 @@ class Backtest(abc.ABC):
         
         # strategy logic
         # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
-        cond = Cond()
+        self.cond = Cond()
         
-        df = self.pool.apply_async(read_data, args=(self.path, stock, data.type)).get()
-        cond.buy, cond.sell, cond.short, cond.cover = self.logic(df, stock)
+        df = self.pool.apply_async(read_data, args=(self.path, stock, self.data_type)).get()
+        self.cond = self.logic(df, stock)
         # self.postprocessing(data)
-        cond.buy.name, cond.sell.name, cond.short.name, cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
-        cond._combine() # combine all conds into all
+        self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        self.cond._combine() # combine all conds into all
         # if buyCond is None and shortCond is None:
         #     raise Exception("You have to specify buy or short condition. Neither was specified.")
         ################################
 
-        rep = Repeater(df, stock, cond.all)
+        rep = Repeater(df, stock, self.cond.all)
 
         # find trade_signals and trans_prices for an asset
         trade_signals = TradeSignal(rep)

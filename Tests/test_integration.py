@@ -33,17 +33,16 @@ class TestSMA(TestStocks):
         path = os.getcwd()
         for name in self.stock_list:
             print(f"RUNNING TEST FOR {name}")
-            baseline = pd.read_excel(path + r'\Tests\baseline_sma_5_25_{name}.xlsx'.format(name=name), sheet_name="Tests")
+            baseline = pd.read_excel(path + r'\Tests\Long\baseline_sma_5_25_{name}.xlsx'.format(name=name), sheet_name="Tests")
             baseline["Ex. date"] = baseline["Ex. date"].astype(str)
-            Settings.read_from_csv_path = path + r"\stock_data\{name}.csv".format(
-                name=name)
+            Settings.read_from_csv_path = r"D:\HDF5\stocks.h5"
             Settings.read_from = "csvFile"
             
-            data = DataReader()
+            data = DataReader("hdf")
             data.readCSV(Settings.read_from_csv_path)
 
             s = StrategySMALong("Test_SMA")
-            s.run(data.data)
+            s.run(data)
             
             s.trade_list.rename(columns={
                 "Date_entry":"Date",
@@ -86,17 +85,16 @@ class TestSMA(TestStocks):
         path = os.getcwd()
         for name in self.stock_list:
             print(f"RUNNING TEST FOR {name}")
-            baseline = pd.read_excel(path + r'\Tests\baseline_short_sma_5_25_{name}.xlsx'.format(name=name), sheet_name="Tests")
+            baseline = pd.read_excel(path + r'\Tests\Short\baseline_short_sma_5_25_{name}.xlsx'.format(name=name), sheet_name="Tests")
             baseline["Ex. date"] = baseline["Ex. date"].astype(str)
-            Settings.read_from_csv_path = path + r"\stock_data\{name}.csv".format(
-                name=name)
+            Settings.read_from_csv_path = r"D:\HDF5\stocks.h5"
             Settings.read_from = "csvFile"
             
-            data = DataReader()
+            data = DataReader("hdf")
             data.readCSV(Settings.read_from_csv_path)
 
             s = StrategySMAShort("Test_SMA")
-            s.run(data.data)
+            s.run(data)
             
             s.trade_list.rename(columns={
                 "Date_entry":"Date",
@@ -138,16 +136,16 @@ class TestSMA(TestStocks):
     def test_portfolio_long(self):
         print("RUNNING PORTFOLIO TEST - LONG")
         path = os.getcwd()
-        baseline = pd.read_excel(path + r'\Tests\baseline_sma_5_25_portfolio_excl_XOM.xlsx', sheet_name="Tests")
+        baseline = pd.read_excel(path + r'\Tests\Long\baseline_sma_5_25_portfolio_excl_XOM.xlsx', sheet_name="Tests")
         baseline["Ex. date"] = baseline["Ex. date"].astype(str)
-        Settings.read_from_csv_path = path + r"\stock_data"
+        Settings.read_from_csv_path = r"D:\HDF5\stocks_test.h5"
         Settings.read_from = "csvFiles"
 
-        data = DataReader()
-        data.readCSVFiles(Settings.read_from_csv_path)
+        data = DataReader("hdf")
+        data.readHDF(Settings.read_from_csv_path)
 
         s = StrategySMALong("Test_SMA")
-        s.run(data.data)
+        s.run(data)
         
         s.trade_list.rename(columns={
             "Date_entry":"Date",
@@ -192,16 +190,16 @@ class TestSMA(TestStocks):
     def test_portfolio_short(self):
         print("RUNNING PORTFOLIO TEST - SHORT")
         path = os.getcwd()
-        baseline = pd.read_excel(path + r'\Tests\baseline_short_sma_5_25_portfolio_excl_XOM.xlsx', sheet_name="Tests")
+        baseline = pd.read_excel(path + r'\Tests\Short\baseline_short_sma_5_25_portfolio_excl_XOM.xlsx', sheet_name="Tests")
         baseline["Ex. date"] = baseline["Ex. date"].astype(str)
-        Settings.read_from_csv_path = path + r"\stock_data"
+        Settings.read_from_csv_path = r"D:\HDF5\stocks.h5"
         Settings.read_from = "csvFiles"
 
-        data = DataReader()
-        data.readCSVFiles(Settings.read_from_csv_path)
+        data = DataReader("hdf")
+        data.readHDF(Settings.read_from_csv_path)
 
         s = StrategySMAShort("Test_SMA")
-        s.run(data.data)
+        s.run(data)
         
         s.trade_list.rename(columns={
             "Date_entry":"Date",
@@ -245,7 +243,7 @@ class TestSMA(TestStocks):
             
 
 class StrategySMALong(bt.Backtest):
-        def logic(self, current_asset):
+        def logic(self, current_asset, stock):
             
             sma5 = SMA(current_asset, ["Close"], 5)
             sma25 = SMA(current_asset, ["Close"], 25)
@@ -256,10 +254,10 @@ class StrategySMALong(bt.Backtest):
             # shortCond = sma5() < sma25()
             # coverCond = sma5() > sma25()
 
-            # return buyCond, sellCond, shortCond, coverCond
+            return self.cond
 
 class StrategySMAShort(bt.Backtest):
-        def logic(self, current_asset):
+        def logic(self, current_asset, stock):
             
             sma5 = SMA(current_asset, ["Close"], 5)
             sma25 = SMA(current_asset, ["Close"], 25)
@@ -270,7 +268,7 @@ class StrategySMAShort(bt.Backtest):
             # shortCond = sma5() < sma25()
             # coverCond = sma5() > sma25()
 
-            # return buyCond, sellCond, shortCond, coverCond
+            return self.cond
 
 # might be useful for future testing
 # df1 = pd.DataFrame([1,2,3], "a b c".split())

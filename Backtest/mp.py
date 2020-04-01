@@ -20,7 +20,8 @@ if __name__ == "__main__":
     # print("Number of cpu : ", mp.cpu_count())
 
     for key in avail_stocks[:20]:
-        results = pd.concat([results, pool.apply_async(read_hdf, args=(path, key)).get()])
+        df = pool.apply_async(read_hdf, args=(path, key)).get()
+        results = pd.concat([results, df])
         # results.append(pool.apply_async(read_hdf, args=(path, key)).get())
 
     print(len(results))
