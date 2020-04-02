@@ -13,6 +13,10 @@ import json
 from datetime import datetime as dt
 import time
 import smtplib, ssl 
+import dask
+import dask.dataframe as dd 
+from dask.distributed import Client
+
 # from email.mime.text import MIMEText
 
 def send_email(message):
@@ -101,15 +105,22 @@ if __name__ == "__main__":
 
     class Strategy(bt.Backtest):
         def logic(self, current_asset):
-            
-            sma5 = SMA(current_asset, ["Close"], 5)
-            sma25 = SMA(current_asset, ["Close"], 25)
+            client = Client(n_workers=4)
+            path = r"D:\HDF5\stocks_test.h5"
+            f = h5py.File(path, "r")
+            avail_stocks = list(f.keys())
 
-            buyCond = sma5() > sma25()
-            sellCond = sma5() < sma25()
-            
-            shortCond = None
-            coverCond = None
+            for key in avail_stocks:
+                
+
+                sma5 = SMA(current_asset, ["Close"], 5)
+                sma25 = SMA(current_asset, ["Close"], 25)
+
+                buyCond = sma5() > sma25()
+                sellCond = sma5() < sma25()
+                
+                shortCond = None
+                coverCond = None
 
             return buyCond, sellCond, shortCond, coverCond
     
