@@ -51,6 +51,7 @@ class Backtest(abc.ABC):
         self.log.info("Backtester started!")
         self.in_trade = {"long":0, "short":0}
         self.universe_ranking = pd.DataFrame()
+        self.cond = Cond()
 
     def preprocessing(self, data):
         """
@@ -71,11 +72,16 @@ class Backtest(abc.ABC):
         """
         pass
 
-    def run(self, data):
+    def run(self, data, type_="backtest"):
         try:   
+            self.avail_stocks = list(data.data.keys())
+            # self.data_type = data.type
+
             self.runs_at = dt.now()
-            self._prepare_data(data)
-            self.preprocessing(data)
+            if type_ != "backtest":
+                self._prepare_data(data)
+            
+            # self.preprocessing(data)
             self._run_portfolio()
         except Exception as e:
             print(e)
@@ -84,7 +90,7 @@ class Backtest(abc.ABC):
             
 
     @abc.abstractmethod
-    def logic(self, current_asset):
+    def logic(self):
         pass
 
     def _prepare_data(self, data):
@@ -109,7 +115,7 @@ class Backtest(abc.ABC):
             self.data[name] = temp     
             
 
-    def _prepricing(self, data):
+    def _prepricing(self, data, name):
         """
         Loop through files
         Generate signals
@@ -119,14 +125,18 @@ class Backtest(abc.ABC):
         """
                                                            
         # for name in self.data:
-        current_asset = self.data[name]
+        current_asset = data
         
         # strategy logic
         # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
-        self.cond = Cond()
+        # self.cond = Cond()
         # self.logic(name)
         # self.postprocessing(name)
-        self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        # self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        self.cond.buy.columns = ["Buy"]
+        self.cond.sell.columns = ["Sell"]
+        self.cond.short.columns = ["Short"]
+        self.cond.cover.columns = ["Cover"]
         self.cond._combine() # combine all conds into all
         # if buyCond is None and shortCond is None:
         #     raise Exception("You have to specify buy or short condition. Neither was specified.")
@@ -165,7 +175,8 @@ class Backtest(abc.ABC):
         Calculate profit and loss for the stretegy
         """
         # prepare data for portfolio
-        self._prepricing()
+        # self._prepricing()
+        self.logic()
 
         # prepare portfolio level
         # copy index and column names for weights
@@ -845,20 +856,21 @@ class Repeater:
 
 class Cond:
     def __init__(self):
-        self.buy = pd.DataFrame()
-        self.sell = pd.DataFrame()
-        self.short = pd.DataFrame()
-        self.cover = pd.DataFrame()
+        self.buy = pd.DataFrame(columns=["Buy"])
+        self.sell = pd.DataFrame(columns=["Sell"])
+        self.short = pd.DataFrame(columns=["Short"])
+        self.cover = pd.DataFrame(columns=["Cover"])
         self.all = pd.DataFrame()
 
     def _combine(self):
         for df in [self.buy, self.sell, self.short, self.cover]:
-            self.all = self.all.append(df)
-        self.all = self.all.T
+            if len(df) != 0:
+                self.all = self.all.append(df.compute())
+        # self.all = self.all.T
 
-        for df in [self.buy, self.sell, self.short, self.cover]:
-            if df.name not in self.all.columns:
-                self.all[df.name] = False
+        for col in ["Buy", "Sell", "Short", "Cover"]:
+            if col not in self.all.columns:
+                self.all[col] = False
 
         # self.all = pd.concat([self.buy, self.sell, self.short, self.cover], axis=1)
 
