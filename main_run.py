@@ -99,32 +99,33 @@ def run_every_min(data):
 if __name__ == "__main__":
     # Settings.read_from_csv_path = r"E:\Windows\Documents\bt_plat\stock_data\XOM.csv"
     # Settings.read_from = "csvFile"
-    
+    Settings.read_from_csv_path = r"D:\HDF5\stocks_test.h5"
     # Settings.buy_delay = 0
     # Settings.sell_delay = 0
 
     class Strategy(bt.Backtest):
-        def logic(self, current_asset):
-            for key in avail_stocks:
-                
+        def logic(self):
+            for stock in self.avail_stocks:                
+                current_asset = dd.read_hdf(Settings.read_from_csv_path, stock)
 
                 sma5 = SMA(current_asset, ["Close"], 5)
                 sma25 = SMA(current_asset, ["Close"], 25)
 
-                buyCond = sma5() > sma25()
-                sellCond = sma5() < sma25()
+                self.cond.buy = sma5.dask() > sma25.dask()
+                self.cond.sell = sma5.dask() < sma25.dask()
                 
-                shortCond = None
-                coverCond = None
+                # shortCond = None
+                # coverCond = None
 
-                self._prepricing()
+                self._prepricing(current_asset, stock)
 
-            return buyCond, sellCond, shortCond, coverCond
+            # return buyCond, sellCond, shortCond, coverCond
     
-    data = DataReader()
+    data = DataReader("hdf")
+    data.readHDF(Settings.read_from_csv_path)
 
     s = Strategy("Test_SMA")
-    s.run()
+    s.run(data)
     # s.trade_list = s.trade_list.round(2)
     # s.trade_list.to_csv("trades.csv")
     # s.port.value.round(2).to_csv("avail_amount.csv")

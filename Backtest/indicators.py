@@ -35,6 +35,15 @@ class SMA(Indicator):
         # need to convert dataframe to series for comparison with series
         return pd.Series(self.result["Close"], self.result.index)
 
+    def dask(self):
+        self.result = self.data.rolling(self.period).mean().round(4)
+        # fillna cuz NaNs result from mean() are strings
+        self.result.fillna(np.NaN)
+        # need to convert dataframe to series for comparison with series
+        # return pd.Series(self.result["Close"], self.result.index)
+        return self.result
+
+
 class ATR(Indicator):
     def __init__(self, current_asset, period):
         self.data = current_asset

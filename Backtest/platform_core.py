@@ -552,8 +552,8 @@ class TradeSignal:
         from Backtest.indicators import ATR
         atr = ATR(rep.data, 14)
 
-        self._apply_stop("buy", self.buyCond, rep, atr()*2)
-        self._apply_stop("short", self.shortCond, rep, atr()*2)
+        # self._apply_stop("buy", self.buyCond, rep, atr()*2)
+        # self._apply_stop("short", self.shortCond, rep, atr()*2)
 
         self.sellCond = _find_signals(rep.allCond["Sell"])
         self.coverCond = _find_signals(rep.allCond["Cover"])
