@@ -8,10 +8,12 @@ from . import config
 from . import Settings
 
 class DataReader:
-    def __init__(self):
+    def __init__(self, type_):
         self.data = {}
+        self.type = type_
         
     def readCSV(self, path):
+        # TODO: replace hardcoded index_col="Date" -> breaks if no Date col
         assert os.path.isfile(
             path), "You need to specify a file or the path doesnt exist."
         _fileName = os.path.basename(path).split(".")[0] # gets file name for a given path; splitting by . to get the name
@@ -47,8 +49,19 @@ class DataReader:
                 _temp.index.name = "Date"
                 _temp.index = pd.to_datetime(_temp.index)
                 self.data[table] = _temp
+    
+    def readHDF(self, path):
+        import h5py
+        self.data = h5py.File(Settings.read_from_csv_path, "r")
+        # self.data = list(self.data.keys())
+        
 
-        # con.close()
+    def _read_hdf(self, key):
+        print(f"Reading stock: {key}, process_id: {os.getpid()}")
+        df = pd.read_hdf(Settings.read_from_csv_path, key)
+        return df
+
+        
     # add conditional decorator
     def establish_con(func):
         if Settings.read_from.lower()=="db":
