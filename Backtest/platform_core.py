@@ -4,6 +4,8 @@ import os
 import abc
 import logging
 import traceback
+import dask.dataframe as dd
+import dask.array as da
 
 # own files
 from Backtest.indicators import SMA
@@ -132,7 +134,7 @@ class Backtest(abc.ABC):
         # self.cond = Cond()
         # self.logic(name)
         # self.postprocessing(name)
-        # self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
         self.cond.buy.columns = ["Buy"]
         self.cond.sell.columns = ["Sell"]
         self.cond.short.columns = ["Short"]
@@ -569,7 +571,7 @@ class TradeSignal:
         self._short_shift = self.shortCond.shift(Settings.short_delay)
         self._cover_shift = self.coverCond.shift(Settings.cover_delay)
 
-        self.all = pd.concat([self._buy_shift, self._sell_shift, self._short_shift, 
+        self.all = dd.concat([self._buy_shift, self._sell_shift, self._short_shift, 
                             self._cover_shift], axis=1)
         self.all.index.name = "Date"
         # might be a better solution cuz might not create copy - need to test it
@@ -621,7 +623,7 @@ class TradeSignal:
     @staticmethod
     def _merge_signals(cond, out, rep, entry, col_name):        
         df = np.select(cond, out, default=0)
-        df = pd.DataFrame(df, index=rep.data.index, columns=[col_name])
+        df = pd.DataFrame(df, index=rep.data.index.values.compute(), columns=[col_name])
         df = df.replace("0", np.NAN)
 
         # find where first buy occured
@@ -860,17 +862,23 @@ class Cond:
         self.sell = pd.DataFrame(columns=["Sell"])
         self.short = pd.DataFrame(columns=["Short"])
         self.cover = pd.DataFrame(columns=["Cover"])
+        # self.buy = pd.Series()
+        # self.sell = pd.Series()
+        # self.short = pd.Series()
+        # self.cover = pd.Series()
         self.all = pd.DataFrame()
 
     def _combine(self):
-        for df in [self.buy, self.sell, self.short, self.cover]:
-            if len(df) != 0:
-                self.all = self.all.append(df.compute())
+        # for df in [self.buy, self.sell, self.short, self.cover]:
+            # if len(df) != 0:
+            #     self.all = self.all.append(df.compute())
+        self.all = dd.concat([self.buy, self.sell, self.short, self.cover])
         # self.all = self.all.T
-
-        for col in ["Buy", "Sell", "Short", "Cover"]:
-            if col not in self.all.columns:
-                self.all[col] = False
+        # ! prob not gonna work with dask dataframes as all 
+        self.all.fillna(False)
+        # for col in ["Buy", "Sell", "Short", "Cover"]:
+        #     if col not in self.all.columns:
+        #         self.all[col] = False
 
         # self.all = pd.concat([self.buy, self.sell, self.short, self.cover], axis=1)
 
@@ -889,7 +897,7 @@ def _remove_dups(data):
     return data
 
 def _find_signals(df):
-    return df.where(df != df.shift(1).fillna(df[0])).shift(0)
+    return df.where(df != df.shift(1).fillna(df.loc[0])).shift(0)
 
 if __name__ == "__main__":
     print("=======================")
