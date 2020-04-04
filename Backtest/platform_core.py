@@ -96,10 +96,10 @@ class Backtest(abc.ABC):
             # self.path = r"D:\HDF5\stocks.h5"
             self.path = Settings.read_from_csv_path
             
-            for stock in self.avail_stocks:
-                df = self.pool.apply_async(read_data, args=(self.path, stock, data.type)).get()
-                uni_rank = self.preprocessing(df, stock)
-                self.universe_ranking = pd.concat([self.universe_ranking, uni_rank])
+            # for stock in self.avail_stocks:
+            #     df = self.pool.apply_async(read_data, args=(self.path, stock, data.type)).get()
+            #     uni_rank = self.preprocessing(df, stock)
+            #     self.universe_ranking = pd.concat([self.universe_ranking, uni_rank])
 
             self._run_portfolio(data)
         except Exception as e:
