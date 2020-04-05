@@ -580,6 +580,7 @@ class TradeSignal:
         #         self.sellCond2 = rep.sellCond.where(rep.sellCond.ne(rep.sellCond.shift(1).fillna(rep.sellCond[0]))).shift(1)
         # ! In case of buy and sell signal occuring on the same candle, Sell/Cover signal is prefered over Buy/Short
         # ! might create signal problems in the future
+        
         cond = [(self._sell_shift == 1), (self._buy_shift == 1)]
         out = ["Sell", "Buy"]
         self.long = self._merge_signals(cond, out, rep, self._buy_shift, "Long")
