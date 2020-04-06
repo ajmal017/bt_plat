@@ -68,7 +68,17 @@ class DataReader:
         result = pd.read_sql(query, con)
         return result
 
+    def readHDF(self, path):
+        import h5py
+        self.data = h5py.File(Settings.read_from_csv_path, "r")
+        # self.data = list(self.data.keys())
+        
 
+    def _read_hdf(self, key):
+        print(f"Reading stock: {key}, process_id: {os.getpid()}")
+        df = pd.read_hdf(Settings.read_from_csv_path, key)
+        return df
+        
 if __name__ == "__main__":
     test = DataReader()
     df = test.execQuery("Select * from backtests limit 10")
