@@ -4,6 +4,7 @@ import os
 import abc
 import logging
 import traceback
+import dask.dataframe as dd
 
 # own files
 from Backtest.indicators import SMA
@@ -51,6 +52,7 @@ class Backtest(abc.ABC):
         self.log.info("Backtester started!")
         self.in_trade = {"long":0, "short":0}
         self.universe_ranking = pd.DataFrame()
+        # self.avail_stocks = list(data.data)
 
     def preprocessing(self, data):
         """
@@ -74,9 +76,10 @@ class Backtest(abc.ABC):
     def run(self, data):
         try:   
             self.runs_at = dt.now()
-            self._prepare_data(data)
+            self.avail_stocks = list(data.data.keys())
+            # self._prepare_data(data)
             self.preprocessing(data)
-            self._run_portfolio()
+            self._run_portfolio(data)
         except Exception as e:
             print(e)
             traceback.print_exc()
@@ -109,7 +112,7 @@ class Backtest(abc.ABC):
             self.data[name] = temp     
             
 
-    def _prepricing(self):
+    def _prepricing(self, data):
         """
         Loop through files
         Generate signals
@@ -118,14 +121,15 @@ class Backtest(abc.ABC):
         Save them into common classes agg_*
         """
                                                            
-        for name in self.data:
-            current_asset = self.data[name]
+        for name in self.avail_stocks:
+            stock_data = dd.read_hdf(Settings.read_from_csv_path, name)
+            current_asset = stock_data.compute()
             
             # strategy logic
             # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
             self.cond = Cond()
-            self.logic(name)
-            self.postprocessing(name)
+            self.logic(current_asset)
+            # self.postprocessing(current_asset)
             self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
             self.cond._combine() # combine all conds into all
             # if buyCond is None and shortCond is None:
@@ -160,12 +164,12 @@ class Backtest(abc.ABC):
     def _aggregate(agg_df, df, ax=1):
         return pd.concat([agg_df, df], axis=ax)        
 
-    def _run_portfolio(self):
+    def _run_portfolio(self, data):
         """
         Calculate profit and loss for the stretegy
         """
         # prepare data for portfolio
-        self._prepricing()
+        self._prepricing(data)
 
         # prepare portfolio level
         # copy index and column names for weights
