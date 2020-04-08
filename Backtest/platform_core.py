@@ -134,7 +134,7 @@ class Backtest(abc.ABC):
         # self.cond = Cond()
         # self.logic(name)
         # self.postprocessing(name)
-        self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        # self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
         self.cond.buy.columns = ["Buy"]
         self.cond.sell.columns = ["Sell"]
         self.cond.short.columns = ["Short"]
@@ -143,7 +143,7 @@ class Backtest(abc.ABC):
         # if buyCond is None and shortCond is None:
         #     raise Exception("You have to specify buy or short condition. Neither was specified.")
         ################################
-
+        self.cond.all = self.cond.all.compute()
         rep = Repeater(current_asset, name, self.cond.all)
 
         # find trade_signals and trans_prices for an asset
@@ -526,6 +526,15 @@ class Backtest(abc.ABC):
         self.port.equity_curve = self.port.equity_curve.cumsum()
         self.port.equity_curve.name = "Equity"
 
+    def read_hdf(self, path, key):
+        df = dd.read_hdf(path, key)
+        index_name = df.index.name
+        if index_name == None:
+            index_name = "index"
+        df = df.reset_index()
+        df = df.set_index(index_name)
+        return df
+
 class TradeSignal:
     """
     Find trade signals for current asset
@@ -870,16 +879,21 @@ class Cond:
         self.all = pd.DataFrame()
 
     def _combine(self):
-        # for df in [self.buy, self.sell, self.short, self.cover]:
-            # if len(df) != 0:
-            #     self.all = self.all.append(df.compute())
-        self.all = dd.concat([self.buy, self.sell, self.short, self.cover])
+        ddf_list = []
+        for df in [self.buy, self.sell, self.short, self.cover]:
+            if len(df) != 0:
+                ddf_list.append(df)
+                # self.all = self.all.append(df.compute())
+                # self.all = dd.concat([df])
+        
+        self.all = dd.concat(ddf_list, axis=1)
+        # self.all = dd.concat([self.buy, self.sell, self.short, self.cover])
         # self.all = self.all.T
         # ! prob not gonna work with dask dataframes as all 
         self.all.fillna(False)
-        # for col in ["Buy", "Sell", "Short", "Cover"]:
-        #     if col not in self.all.columns:
-        #         self.all[col] = False
+        for col in ["Buy", "Sell", "Short", "Cover"]:
+            if col not in self.all.columns:
+                self.all[col] = False
 
         # self.all = pd.concat([self.buy, self.sell, self.short, self.cover], axis=1)
 
@@ -898,7 +912,7 @@ def _remove_dups(data):
     return data
 
 def _find_signals(df):
-    return df.where(df != df.shift(1).fillna(df.loc[0])).shift(0)
+    return df.where(df != df.shift(1).bfill()).shift(0)
 
 if __name__ == "__main__":
     print("=======================")
