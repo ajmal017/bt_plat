@@ -106,7 +106,7 @@ if __name__ == "__main__":
     class Strategy(bt.Backtest):
         def logic(self):
             for stock in self.avail_stocks:                
-                current_asset = dd.read_hdf(Settings.read_from_csv_path, stock)
+                current_asset = self.read_hdf(Settings.read_from_csv_path, stock)
 
                 sma5 = SMA(current_asset, ["Close"], 5)
                 sma25 = SMA(current_asset, ["Close"], 25)
