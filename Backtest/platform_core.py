@@ -143,7 +143,7 @@ class Backtest(abc.ABC):
         # if buyCond is None and shortCond is None:
         #     raise Exception("You have to specify buy or short condition. Neither was specified.")
         ################################
-        self.cond.all = self.cond.all.compute()
+        # self.cond.all = self.cond.all.compute()
         rep = Repeater(current_asset, name, self.cond.all)
 
         # find trade_signals and trans_prices for an asset
@@ -560,8 +560,8 @@ class TradeSignal:
         self.shortCond = _find_signals(rep.allCond["Short"])
 
         # keeping it here for now
-        from Backtest.indicators import ATR
-        atr = ATR(rep.data, 14)
+        # from Backtest.indicators import ATR
+        # atr = ATR(rep.data, 14)
 
         # self._apply_stop("buy", self.buyCond, rep, atr()*2)
         # self._apply_stop("short", self.shortCond, rep, atr()*2)
@@ -582,6 +582,7 @@ class TradeSignal:
 
         self.all = dd.concat([self._buy_shift, self._sell_shift, self._short_shift, 
                             self._cover_shift], axis=1)
+        # print(self.all.head())
         self.all.index.name = "Date"
         # might be a better solution cuz might not create copy - need to test it
         # taken from https://stackoverflow.com/questions/53608501/numpy-pandas-remove-sequential-duplicate-values-equivalent-of-bash-uniq-withou?noredirect=1&lq=1
@@ -638,7 +639,8 @@ class TradeSignal:
 
         # find where first buy occured
         temp = entry.dropna()
-        if not temp.empty:
+        # if not temp.empty:
+        if len(temp.index) != 0:
             first_entry = temp.index[0]
 
             df = df[first_entry:]
