@@ -14,6 +14,7 @@ import json
 from datetime import datetime as dt
 import time
 import smtplib, ssl 
+import numpy as np
 # from email.mime.text import MIMEText
 
 def send_email(message):
@@ -96,7 +97,11 @@ def run_every_min(data):
 # ! 964.111 seconds for dd.read_hdf
 if __name__ == "__main__":
     Settings.read_from_csv_path = r"D:\HDF5\stocks_test.h5"
+<<<<<<< HEAD
     # Settings.read_from = "csvFiles"
+=======
+    # Settings.read_from = "hdf"
+>>>>>>> master
     
     # Settings.buy_delay = 0
     # Settings.sell_delay = 0
@@ -110,6 +115,7 @@ if __name__ == "__main__":
             self.cond.buy = sma5() > sma25()
             self.cond.sell = sma5() < sma25()
             
+<<<<<<< HEAD
             # shortCond = None
             # coverCond = None
 
@@ -125,6 +131,24 @@ if __name__ == "__main__":
     # s.port.value.round(2).to_csv("avail_amount.csv")
 
     # data = DataReader()
+=======
+            # self.cond.shortCond = None
+            # self.cond.coverCond = None
+
+            # return buyCond, sellCond, shortCond, coverCond
+    
+
+    data = DataReader()
+    data.read_hdf_pd(Settings.read_from_csv_path)
+    
+    s = Strategy("Test_SMA")
+    s.run(data.data)
+    # s.trade_list = s.trade_list.round(2)
+    # s.trade_list.to_csv("trades.csv")
+    # s.port.value.round(2).to_csv("avail_amount.csv")
+    # np.savetxt("avail_amount.csv", s.port.value, delimiter=",")
+
+>>>>>>> master
 
     # with open(Settings.path_to_mapping, "r") as f:
     #     file = json.loads(f.read())

@@ -62,17 +62,28 @@ class DataReader:
             # con.close() # engine closes connection automatically?
             return inner
     
-    
     @establish_con
     def execQuery(self, con, query):
         result = pd.read_sql(query, con)
         return result
 
+<<<<<<< HEAD
     def readHDF(self, path):
         import h5py
         self.data = h5py.File(Settings.read_from_csv_path, "r")
         # self.data = list(self.data.keys())
         
+=======
+    def read_hdf_pd(self, path):
+        import h5py
+        data = h5py.File(path, "r")
+        stocks = list(data.keys())
+        for stock in stocks:
+            self.data[stock] = pd.read_hdf(path, stock)
+
+        # for key in 
+
+>>>>>>> master
 
     def _read_hdf(self, key):
         print(f"Reading stock: {key}, process_id: {os.getpid()}")
