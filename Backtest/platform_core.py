@@ -5,6 +5,7 @@ import abc
 import logging
 import traceback
 import dask.dataframe as dd
+from dask.distributed import Client
 
 # own files
 from Backtest.indicators import SMA
@@ -80,7 +81,7 @@ class Backtest(abc.ABC):
             self.avail_stocks = list(data.data.keys())
             # self._prepare_data(data)
             self.preprocessing(data)
-            self._run_portfolio(data)
+            self._run_portfolio()
         except Exception as e:
             print(e)
             traceback.print_exc()
@@ -113,7 +114,7 @@ class Backtest(abc.ABC):
             self.data[name] = temp     
             
 
-    def _prepricing(self, data):
+    def _prepricing(self):
         """
         Loop through files
         Generate signals
@@ -121,20 +122,15 @@ class Backtest(abc.ABC):
         Match buys and sells
         Save them into common classes agg_*
         """
-                                                           
         for name in self.avail_stocks:
             stock_data = dd.read_hdf(Settings.read_from_csv_path, name)
-            current_asset = stock_data.compute()
+            # current_asset = stock_data.compute()
             
             # strategy logic
             # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
             self.cond = Cond()
             self.logic(current_asset)
-<<<<<<< HEAD
             # self.postprocessing(current_asset)
-=======
-            self.postprocessing(current_asset)
->>>>>>> master
             self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
             self.cond._combine() # combine all conds into all
             # if buyCond is None and shortCond is None:
@@ -169,19 +165,18 @@ class Backtest(abc.ABC):
     def _aggregate(agg_df, df, ax=1):
         return pd.concat([agg_df, df], axis=ax)        
 
-    def _run_portfolio(self, data):
+    def _run_portfolio(self):
         """
         Calculate profit and loss for the stretegy
         """
-        # prepare data for portfolio
-<<<<<<< HEAD
-        self._prepricing(data)
+        client = Client() 
+        futures = []
 
-=======
-        self._prepricing()
+        # prepare data for portfolio
+        future = client.submit(self._prepricing)
+        # self._prepricing()
         self.idx = self.agg_trades.priceFluctuation_dollar.index
         num_of_cols = len(self.data.keys())
->>>>>>> master
         # prepare portfolio level
         # copy index and column names for weights
         # self.port.weights = pd.DataFrame(
