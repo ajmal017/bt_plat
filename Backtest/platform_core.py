@@ -4,6 +4,7 @@ import os
 import abc
 import logging
 import traceback
+from pathos.serial import SerialPool
 
 # own files
 from Backtest.indicators import SMA
@@ -35,7 +36,7 @@ _setup_log("Backtester")
 #############################################
 # Core starts
 #############################################
-class Backtest(abc.ABC):
+class Backtest():
 
     def __init__(self, name):
         self.name = name
@@ -76,6 +77,7 @@ class Backtest(abc.ABC):
         try:   
             self.runs_at = dt.now()
             self._prepare_data(data)
+            self.asset_list = list(data.keys())
             self.preprocessing(data)
             self._run_portfolio()
         except Exception as e:
@@ -110,7 +112,7 @@ class Backtest(abc.ABC):
             self.data[name] = temp     
             
 
-    def _prepricing(self):
+    def _prepricing(self, name):
         """
         Loop through files
         Generate signals
@@ -118,44 +120,44 @@ class Backtest(abc.ABC):
         Match buys and sells
         Save them into common classes agg_*
         """
-                                                           
-        for name in self.data:
-            current_asset = self.data[name]
-            
-            # strategy logic
-            # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
-            self.cond = Cond()
-            self.logic(current_asset)
-            self.postprocessing(current_asset)
-            self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
-            self.cond._combine() # combine all conds into all
-            # if buyCond is None and shortCond is None:
-            #     raise Exception("You have to specify buy or short condition. Neither was specified.")
-            ################################
+        
+            # for name in self.data:
+        current_asset = self.data[name]
+        print(f"Process ID: {os.getpid()}, stock: {name}")
+        # strategy logic
+        # buyCond, sellCond, shortCond, coverCond = self.logic(current_asset)
+        self.cond = Cond()
+        self.logic(current_asset)
+        self.postprocessing(current_asset)
+        self.cond.buy.name, self.cond.sell.name, self.cond.short.name, self.cond.cover.name = ["Buy", "Sell", "Short", "Cover"]
+        self.cond._combine() # combine all conds into all
+        # if buyCond is None and shortCond is None:
+        #     raise Exception("You have to specify buy or short condition. Neither was specified.")
+        ################################
 
-            rep = Repeater(current_asset, name, self.cond.all)
+        rep = Repeater(current_asset, name, self.cond.all)
 
-            # find trade_signals and trans_prices for an asset
-            trade_signals = TradeSignal(rep)
-            trans_prices = TransPrice(rep, trade_signals)
-            trades_current_asset = Trades(rep, trade_signals, trans_prices)
+        # find trade_signals and trans_prices for an asset
+        trade_signals = TradeSignal(rep)
+        trans_prices = TransPrice(rep, trade_signals)
+        trades_current_asset = Trades(rep, trade_signals, trans_prices)
 
-            # save trade_signals for portfolio level
-            # self.agg_trade_signals.buys = self._aggregate(self.agg_trade_signals.buys, trade_signals.buyCond)
-            # self.agg_trade_signals.sells = self._aggregate(self.agg_trade_signals.sells, trade_signals.sellCond)
-            # self.agg_trade_signals.shorts = self._aggregate(self.agg_trade_signals.shorts, trade_signals.shortCond)
-            # self.agg_trade_signals.covers = self._aggregate(self.agg_trade_signals.covers, trade_signals.coverCond)
-            # self.agg_trade_signals.all = self._aggregate(self.agg_trade_signals.all, trade_signals.all)
+        return trans_prices#, trades_current_asset
+        # save trade_signals for portfolio level
+        # self.agg_trade_signals.buys = self._aggregate(self.agg_trade_signals.buys, trade_signals.buyCond)
+        # self.agg_trade_signals.sells = self._aggregate(self.agg_trade_signals.sells, trade_signals.sellCond)
+        # self.agg_trade_signals.shorts = self._aggregate(self.agg_trade_signals.shorts, trade_signals.shortCond)
+        # self.agg_trade_signals.covers = self._aggregate(self.agg_trade_signals.covers, trade_signals.coverCond)
+        # self.agg_trade_signals.all = self._aggregate(self.agg_trade_signals.all, trade_signals.all)
 
-            # save trans_prices for portfolio level
-            self.agg_trans_prices.buyPrice = self._aggregate(self.agg_trans_prices.buyPrice, trans_prices.buyPrice)
-            self.agg_trans_prices.sellPrice = self._aggregate(self.agg_trans_prices.sellPrice, trans_prices.sellPrice)
-            self.agg_trans_prices.shortPrice = self._aggregate(self.agg_trans_prices.shortPrice, trans_prices.shortPrice)
-            self.agg_trans_prices.coverPrice = self._aggregate(self.agg_trans_prices.coverPrice, trans_prices.coverPrice)
-            self.agg_trades.priceFluctuation_dollar = self._aggregate(self.agg_trades.priceFluctuation_dollar,
-                                                                    trades_current_asset.priceFluctuation_dollar)
-            self.agg_trades.trades = self._aggregate(self.agg_trades.trades, trades_current_asset.trades, ax=0)
-            # self. = self._aggregate(self.agg_trades.inTradePrice, trades_current_asset.inTradePrice)
+        # save trans_prices for portfolio level
+        # self.agg_trans_prices.buyPrice = self._aggregate(self.agg_trans_prices.buyPrice, trans_prices.buyPrice)
+        # self.agg_trans_prices.sellPrice = self._aggregate(self.agg_trans_prices.sellPrice, trans_prices.sellPrice)
+        # self.agg_trans_prices.shortPrice = self._aggregate(self.agg_trans_prices.shortPrice, trans_prices.shortPrice)
+        # self.agg_trans_prices.coverPrice = self._aggregate(self.agg_trans_prices.coverPrice, trans_prices.coverPrice)
+        # self.agg_trades.priceFluctuation_dollar = self._aggregate(self.agg_trades.priceFluctuation_dollar,
+        #                                                         trades_current_asset.priceFluctuation_dollar)
+        # self.agg_trades.trades = self._aggregate(self.agg_trades.trades, trades_current_asset.trades, ax=0)
 
     @staticmethod
     def _aggregate(agg_df, df, ax=1):
@@ -166,7 +168,16 @@ class Backtest(abc.ABC):
         Calculate profit and loss for the stretegy
         """
         # prepare data for portfolio
-        self._prepricing()
+        with SerialPool(nodes=4) as pool:
+            for tp in pool.map(self._prepricing, self.asset_list):
+                print(tp)
+                self.agg_trans_prices.buyPrice = self._aggregate(self.agg_trans_prices.buyPrice, tp.buyPrice)
+                self.agg_trans_prices.sellPrice = self._aggregate(self.agg_trans_prices.sellPrice, tp.sellPrice)
+                self.agg_trans_prices.shortPrice = self._aggregate(self.agg_trans_prices.shortPrice, tp.shortPrice)
+                self.agg_trans_prices.coverPrice = self._aggregate(self.agg_trans_prices.coverPrice, tp.coverPrice)
+                # self.agg_trades.priceFluctuation_dollar = self._aggregate(self.agg_trades.priceFluctuation_dollar,
+                #                                                         trades.priceFluctuation_dollar)  
+        
         self.idx = self.agg_trades.priceFluctuation_dollar.index
         num_of_cols = len(self.data.keys())
         # prepare portfolio level
