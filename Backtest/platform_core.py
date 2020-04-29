@@ -174,6 +174,7 @@ class Backtest(abc.ABC):
 
         # prepare data for portfolio
         future = client.submit(self._prepricing)
+        print(future.result())
         # self._prepricing()
         self.idx = self.agg_trades.priceFluctuation_dollar.index
         num_of_cols = len(self.data.keys())
