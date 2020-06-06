@@ -39,11 +39,11 @@ class TestSMA(TestStocks):
                 name=name)
             Settings.read_from = "csvFile"
             
-            data = DataReader()
-            data.readCSV(Settings.read_from_csv_path)
+            data = DataReader("csv", Settings.read_from_csv_path)
+            # data.readCSV(Settings.read_from_csv_path)
 
             s = StrategySMALong("Test_SMA")
-            s.run(data.data)
+            s.run(data)
             
             s.trade_list.rename(columns={
                 "Date_entry":"Date",
@@ -90,13 +90,13 @@ class TestSMA(TestStocks):
             baseline["Ex. date"] = baseline["Ex. date"].astype(str)
             Settings.read_from_csv_path = path + r"\stock_data\{name}.csv".format(
                 name=name)
-            Settings.read_from = "csvFile"
             
-            data = DataReader()
-            data.readCSV(Settings.read_from_csv_path)
+            
+            data = DataReader("csv", Settings.read_from_csv_path)
+            # data.readCSV(Settings.read_from_csv_path)
 
             s = StrategySMAShort("Test_SMA")
-            s.run(data.data)
+            s.run(data)
             
             s.trade_list.rename(columns={
                 "Date_entry":"Date",
@@ -140,14 +140,14 @@ class TestSMA(TestStocks):
         path = os.getcwd()
         baseline = pd.read_excel(path + r'\Tests\Long\baseline_sma_5_25_portfolio_excl_XOM.xlsx', sheet_name="Tests")
         baseline["Ex. date"] = baseline["Ex. date"].astype(str)
-        Settings.read_from_csv_path = r"D:\HDF5\stocks_test.h5"
-        # Settings.read_from = "csvFiles"
+        Settings.read_from_csv_path = r"E:\Windows\Documents\bt_plat\stock_data"
+        
 
-        data = DataReader()
-        data.read_hdf_pd(Settings.read_from_csv_path)
+        data = DataReader("csv_files", Settings.read_from_csv_path)
+        # data.read_hdf_pd(Settings.read_from_csv_path)
 
         s = StrategySMALong("Test_SMA")
-        s.run(data.data)
+        s.run(data)
         
         s.trade_list.rename(columns={
             "Date_entry":"Date",
@@ -178,8 +178,8 @@ class TestSMA(TestStocks):
             "Cum. Profit"
         ]]
         s.trade_list[["Price", "Ex. Price", "Profit", "Position value", "Cum. Profit"]] = s.trade_list[
-            ["Price", "Ex. Price", "Profit", "Position value", "Cum. Profit"]].round(2)
-        s.trade_list[["% chg", "% Profit"]] = s.trade_list[["% chg", "% Profit"]].round(4)
+            ["Price", "Ex. Price", "Profit", "Position value", "Cum. Profit"]].astype(float).round(2)
+        s.trade_list[["% chg", "% Profit"]] = s.trade_list[["% chg", "% Profit"]].astype(float).round(4)
         # s.trade_list["Ex. date"] = pd.to_datetime(s.trade_list["Ex. date"], errors="coerce")
         s.trade_list["Ex. date"] = s.trade_list["Ex. date"].astype(str)
         s.trade_list["Symbol"] = s.trade_list["Symbol"].str.replace(".csv", "")
@@ -194,14 +194,14 @@ class TestSMA(TestStocks):
         path = os.getcwd()
         baseline = pd.read_excel(path + r'\Tests\Short\baseline_short_sma_5_25_portfolio_excl_XOM.xlsx', sheet_name="Tests")
         baseline["Ex. date"] = baseline["Ex. date"].astype(str)
-        Settings.read_from_csv_path = path + r"\stock_data"
-        Settings.read_from = "csvFiles"
+        Settings.read_from_csv_path = r"E:\Windows\Documents\bt_plat\stock_data"
+        
 
-        data = DataReader()
-        data.readCSVFiles(Settings.read_from_csv_path)
-
+        data = DataReader("csv_files", Settings.read_from_csv_path)
+        # data.readCSVFiles(Settings.read_from_csv_path)
+# 
         s = StrategySMAShort("Test_SMA")
-        s.run(data.data)
+        s.run(data)
         
         s.trade_list.rename(columns={
             "Date_entry":"Date",
@@ -232,8 +232,8 @@ class TestSMA(TestStocks):
             "Cum. Profit"
         ]]
         s.trade_list[["Price", "Ex. Price", "Profit", "Position value", "Cum. Profit"]] = s.trade_list[
-            ["Price", "Ex. Price", "Profit", "Position value", "Cum. Profit"]].round(2)
-        s.trade_list[["% chg", "% Profit"]] = s.trade_list[["% chg", "% Profit"]].round(4)
+            ["Price", "Ex. Price", "Profit", "Position value", "Cum. Profit"]].astype(float).round(2)
+        s.trade_list[["% chg", "% Profit"]] = s.trade_list[["% chg", "% Profit"]].astype(float).round(4)
         # s.trade_list["Ex. date"] = pd.to_datetime(s.trade_list["Ex. date"], errors="coerce")
         s.trade_list["Ex. date"] = s.trade_list["Ex. date"].astype(str)
         s.trade_list["Symbol"] = s.trade_list["Symbol"].str.replace(".csv", "")
@@ -245,10 +245,10 @@ class TestSMA(TestStocks):
             
 
 class StrategySMALong(bt.Backtest):
-        def logic(self, current_asset):
+        def logic(self, current_asset, name):
             
-            sma5 = SMA(current_asset, ["Close"], 5)
-            sma25 = SMA(current_asset, ["Close"], 25)
+            sma5 = SMA(current_asset, "Close", 5)
+            sma25 = SMA(current_asset, "Close", 25)
 
             self.cond.buy = sma5() > sma25()
             self.cond.sell = sma5() < sma25()
@@ -259,10 +259,11 @@ class StrategySMALong(bt.Backtest):
             # return buyCond, sellCond, shortCond, coverCond
 
 class StrategySMAShort(bt.Backtest):
-        def logic(self, current_asset):
+        def logic(self, current_asset, name):
             
-            sma5 = SMA(current_asset, ["Close"], 5)
-            sma25 = SMA(current_asset, ["Close"], 25)
+
+            sma5 = SMA(current_asset, "Close", 5)
+            sma25 = SMA(current_asset, "Close", 25)
 
             self.cond.short = sma5() < sma25()
             self.cond.cover = sma5() > sma25()
@@ -297,11 +298,12 @@ def suite():
     suite = unittest.TestSuite()
     # suite.addTest(TestSMA('test_stock_long'))
     suite.addTest(TestSMA('test_portfolio_long'))
-    suite.addTest(TestSMA('test_stock_short'))
-    suite.addTest(TestSMA('test_portfolio_short'))
+    # suite.addTest(TestSMA('test_stock_short'))
+    # suite.addTest(TestSMA('test_portfolio_short'))
     return suite
 
 if __name__=="__main__":
+    Settings.backtest_engine = "pandas"
     # t = TestSMA()
     # t.test_stock_long()
     # unittest.main()

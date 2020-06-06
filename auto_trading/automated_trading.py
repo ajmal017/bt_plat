@@ -163,6 +163,7 @@ class _IBWrapper(EWrapper):
     def __init__(self):
         EWrapper.__init__(self)
         self.data = {}
+        self.avail_funds = None
 
     def error(self, reqId, errorCode, errorString):
         print(f"ReqID: {reqId}, Code: {errorCode}, Error: {errorString}")
@@ -175,8 +176,10 @@ class _IBWrapper(EWrapper):
 
     @printall
     def accountSummary(self, reqId, account, tag, value, currency):
-        print(f"ReqID: {reqId}, Account: {account}, Tag: {tag}, Value: {value}, Currency: {currency}")
-        self.logger.info(f"ReqID: {reqId}, Account: {account}, Tag: {tag}, Value: {value}, Currency: {currency}")
+        if tag=="AvailableFunds":
+            self.avail_funds = value
+        # print(f"ReqID: {reqId}, Account: {account}, Tag: {tag}, Value: {value}, Currency: {currency}")
+        # self.logger.info(f"ReqID: {reqId}, Account: {account}, Tag: {tag}, Value: {value}, Currency: {currency}")
 
     @printall
     def accountSummaryEnd(self, reqId: int):
@@ -286,8 +289,8 @@ class _IBClient(EClient):
     def __init__(self, wrapper):
         EClient.__init__(self, wrapper)
 
-    def reqHistoricalData(self, reqId, contract, endDateTime, durationStr, barSizeSetting, 
-                        whatToShow, useRTH, formatDate, keepUpToDate, chartOptions):
+    def reqHistoricalData(self, reqId, contract, endDateTime="", durationStr="3 D", barSizeSetting="1 min", 
+                        whatToShow="MIDPOINT", useRTH=1, formatDate=1, keepUpToDate=True, chartOptions=[]):
         super().reqHistoricalData(reqId, contract, endDateTime, durationStr, barSizeSetting, 
                                 whatToShow, useRTH, formatDate, keepUpToDate, chartOptions)
         
@@ -375,6 +378,7 @@ class IBApp(_IBWrapper, _IBClient):
 
     def run_every_min(self, data, strat):
         prev_min = None
+        from Backtest.data_reader import DataReader
         while True:
             try:
                 now = dt.now()
@@ -382,12 +386,14 @@ class IBApp(_IBWrapper, _IBClient):
                 if now.second == 5 and recent_min != prev_min:
                     prev_min = recent_min
                     print("Running strategy")
-                    s = strat() # gotta create new object, otherwise it duplicates previous results    
-                    s.run(data)
+                    s = strat(real_time=True) # gotta create new object, otherwise it duplicates previous results  
+                    data_ = DataReader("at", data.data) 
+                    s.run(data_)
                     self.submit_orders(s.trade_list)
             except Exception as e:
                 print("An error occured")
                 print(e)
+
     @staticmethod
     def send_email(message):
         port = 465 # for SSL
@@ -453,30 +459,38 @@ class IBApp(_IBWrapper, _IBClient):
             asset = order["Symbol"]
             # _asset = order["Symbol"].split(".")
             # _asset = "".join(_asset)
-            
-            # simple check to see if current order has already been submitted
-            if (asset not in current_orders["symbol_currency"].values) and (asset not in current_positions["symbol_currency"].values):
-                print("Calling entry logic")
-                if bt_orders[bt_orders["Symbol"]==asset]["Direction"].iloc[0] == "Long":
-                    self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["forex"][asset]), IBOrder.MarketOrder("BUY", order["Position_value"]))
-                    self.send_email(f"Subject: Buy signal {asset} \n\n BUY - {asset} - {order['Position_value']}")
-                
-                elif bt_orders[bt_orders["Symbol"]==asset]["Direction"].iloc[0] == "Short":
-                    self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["forex"][asset]), IBOrder.MarketOrder("SELL", abs(order["Position_value"])))
-                    self.send_email(f"Subject: Short signal {asset} \n\n SHORT - {asset} - {order['Position_value']}")
+            try:
+                # simple check to see if current order has already been submitted
+                if (asset not in current_orders["symbol_currency"].values) and (asset not in current_positions["symbol_currency"].values):
+                    print("Calling entry logic")
+                    if bt_orders[bt_orders["Symbol"]==asset]["Direction"].iloc[0] == "Long":
+                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("BUY", order["Position_value"]))
+                        self.send_email(f"Subject: Buy signal {asset} \n\n BUY - {asset} - {order['Position_value']}")
+                    
+                    elif bt_orders[bt_orders["Symbol"]==asset]["Direction"].iloc[0] == "Short":
+                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("SELL", abs(order["Position_value"])))
+                        self.send_email(f"Subject: Short signal {asset} \n\n SHORT - {asset} - {order['Position_value']}")
+            except Exception as e:
+                print(f"Couldnt enter position for {asset}")
+                print(e)
         # exit logic
         for ix, order in current_positions.iterrows():
-            asset = order["symbol_currency"]
-            if (asset not in bt_orders["Symbol"].values) and (asset not in current_orders["symbol_currency"].values):
-                print("Calling exit logic")
-                if order["quantity"] > 0:
-                    self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["forex"][asset]), IBOrder.MarketOrder("SELL", order["quantity"]))
-                    self.send_email(f"Subject: Sell signal {asset} \n\n SELL - {asset} - {order['quantity']}")
+            try:
+                asset = order["symbol_currency"]
+                if (asset not in bt_orders["Symbol"].values) and (asset not in current_orders["symbol_currency"].values):
+                    print("Calling exit logic")
+                    if order["quantity"] > 0:
+                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("SELL", order["quantity"]))
+                        self.send_email(f"Subject: Sell signal {asset} \n\n SELL - {asset} - {order['quantity']}")
 
-                elif order["quantity"] < 0:
-                    self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["forex"][asset]), IBOrder.MarketOrder("BUY", abs(order["quantity"])))
-                    self.send_email(f"Subject: Cover signal {asset} \n\n COVER - {asset} - {order['quantity']}")
-
+                    elif order["quantity"] < 0:
+                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("BUY", abs(order["quantity"])))
+                        self.send_email(f"Subject: Cover signal {asset} \n\n COVER - {asset} - {order['quantity']}")
+            except Exception as e:
+                print(f"Couldnt exit position for {asset}")
+                print(e)
+    def read_data(self, stock):
+        return (stock, self.data[stock])
 
     
 
