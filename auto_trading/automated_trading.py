@@ -12,6 +12,7 @@ from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
 from ibapi.order import Order
+from ibapi.scanner import ScannerSubscription
 
 from auto_trading.other import send_email
 from Backtest import Settings as settings
@@ -158,12 +159,34 @@ class IBOrder:
         order.totalQuantity = quantity
         # ! [stop]
         return order
+
+class IBScanner:
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def HottestPennyStocks():
+        """
+        Subscribe to US stocks 1 < price < 10 and vol > 1M.
+        Scan code = TOP_PERC_GAIN
+        """
+        scanSub = ScannerSubscription()
+        scanSub.instrument = "STK"
+        scanSub.locationCode = "STK.US"
+        scanSub.scanCode = "TOP_PERC_GAIN"
+        scanSub.abovePrice = 1
+        scanSub.belowPrice = 10
+        scanSub.aboveVolume = 1000000
+
+        return scanSub
+    
     
 class _IBWrapper(EWrapper):
     def __init__(self):
         EWrapper.__init__(self)
         self.data = {}
         self.avail_funds = None
+        self.scanner_instr = {}
 
     def error(self, reqId, errorCode, errorString):
         print(f"ReqID: {reqId}, Code: {errorCode}, Error: {errorString}")
@@ -176,8 +199,8 @@ class _IBWrapper(EWrapper):
 
     @printall
     def accountSummary(self, reqId, account, tag, value, currency):
-        if tag=="AvailableFunds":
-            self.avail_funds = value
+        if tag=="NetLiquidation":
+            self.avail_funds = float(value)
         # print(f"ReqID: {reqId}, Account: {account}, Tag: {tag}, Value: {value}, Currency: {currency}")
         # self.logger.info(f"ReqID: {reqId}, Account: {account}, Tag: {tag}, Value: {value}, Currency: {currency}")
 
@@ -258,7 +281,33 @@ class _IBWrapper(EWrapper):
         print(f"ReqID: {reqId}, start: {start}, end: {end}")
         # self.data = self.q.get()
 
+    def scannerData(self, reqId:int, rank:int, contractDetails, distance:str, benchmark:str, projection:str, legsStr:str):
+        """
+        Parameters
+            reqid	        the request's identifier.
+            rank	        the ranking within the response of this bar.
+            contractDetails	the data's ContractDetails
+            distance	    according to query.
+            benchmark	    according to query.
+            projection	    according to query.
+            legStr	        describes the combo legs when the scanner is returning EFP 
+        """
+        if contractDetails.contract.symbol not in self.scanner_instr.keys():
+            symbol = contractDetails.contract.symbol
+            secType = contractDetails.contract.secType
+            currency = contractDetails.contract.currency
+            exchange = contractDetails.contract.exchange
+            primaryExchange = contractDetails.contract.primaryExchange
+            self.scanner_instr[contractDetails.contract.symbol] = {"symbol": symbol,
+                                                                   "secType": secType,
+                                                                   "currency": currency,
+                                                                   "exchange": exchange,
+                                                                   "primaryExchange": primaryExchange
+                                                                  }
+            print(f"ReqId: {reqId}, rank: {rank}, symbol: {symbol}, secType: {secType}, exchange: {exchange}, primaryExchange: {primaryExchange}, currency: {currency}")
 
+    def scannerParameters(self, xml:str):
+        print(xml)
 
     @printall
     def nextValidId(self, orderId):
@@ -376,20 +425,21 @@ class IBApp(_IBWrapper, _IBClient):
         for ix, pos in self.open_positions.iterrows():
             self.placeOrder(self.nextOrderId(), IBContract.stock(self.asset_map["stock"][pos["symbol_currency"]]), IBOrder.MarketOrder("SELL", pos["quantity"]))
 
-    def run_every_min(self, data, strat):
+    def run_strategy(self, strat):
         prev_min = None
         from Backtest.data_reader import DataReader
         while True:
             try:
-                now = dt.now()
-                recent_min = now.minute
-                if now.second == 5 and recent_min != prev_min:
-                    prev_min = recent_min
-                    print("Running strategy")
-                    s = strat(real_time=True) # gotta create new object, otherwise it duplicates previous results  
-                    data_ = DataReader("at", data.data) 
-                    s.run(data_)
-                    self.submit_orders(s.trade_list)
+                # now = dt.now()
+                # recent_min = now.minute
+                # if now.second == 5 and recent_min != prev_min:
+                #     prev_min = recent_min
+                print("Running strategy")
+                s = strat(real_time=True) # gotta create new object, otherwise it duplicates previous results  
+                data_ = DataReader("at", self.data) 
+                settings.start_amount = self.avail_funds
+                s.run(data_)
+                self.submit_orders(s.trade_list)
             except Exception as e:
                 print("An error occured")
                 print(e)
@@ -464,12 +514,12 @@ class IBApp(_IBWrapper, _IBClient):
                 if (asset not in current_orders["symbol_currency"].values) and (asset not in current_positions["symbol_currency"].values):
                     print("Calling entry logic")
                     if bt_orders[bt_orders["Symbol"]==asset]["Direction"].iloc[0] == "Long":
-                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("BUY", order["Position_value"]))
-                        self.send_email(f"Subject: Buy signal {asset} \n\n BUY - {asset} - {order['Position_value']}")
+                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("BUY", order["Weight"]))
+                        self.send_email(f"Subject: Buy signal {asset} \n\n BUY - {asset} - {order['Weight']}")
                     
                     elif bt_orders[bt_orders["Symbol"]==asset]["Direction"].iloc[0] == "Short":
-                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("SELL", abs(order["Position_value"])))
-                        self.send_email(f"Subject: Short signal {asset} \n\n SHORT - {asset} - {order['Position_value']}")
+                        self.placeOrder(self.nextOrderId(), IBContract.forex(self.asset_map["stock"][asset]), IBOrder.MarketOrder("SELL", abs(order["Weight"])))
+                        self.send_email(f"Subject: Short signal {asset} \n\n SHORT - {asset} - {order['Weight']}")
             except Exception as e:
                 print(f"Couldnt enter position for {asset}")
                 print(e)
@@ -489,10 +539,21 @@ class IBApp(_IBWrapper, _IBClient):
             except Exception as e:
                 print(f"Couldnt exit position for {asset}")
                 print(e)
+
     def read_data(self, stock):
         return (stock, self.data[stock])
 
-    
+    def scannerDataEnd(self, reqId:int):
+        # super().scannerDataEnd(self, reqId:int)
+        for symbol in self.scanner_instr.keys():
+            # check if already requested & tracking data for the symbol
+            # Otherwise it will request multiples of the same symbol -> reach limit of 50 simultaneous API historical data requests
+            if symbol + "." + self.scanner_instr[symbol]["currency"] not in self.data_tracker.values():
+                print("SYMBOL NOT TRACKED: ", symbol + "." + self.scanner_instr[symbol]["currency"], self.data_tracker.values())
+                self.reqHistoricalData(reqId=self.nextOrderId(), contract=IBContract.stock(self.scanner_instr[symbol]))
+        print(f"Finished executing scanner data reqID: {reqId}")
+        print(f"Stocks in self.scanner_instr.keys(): {self.scanner_instr.keys()}")
+        print(f"Currently tracking: {self.data_tracker.values()}")
 
     # def place_order(self):
     #     self.simplePlaceOid = self.nextValidId()

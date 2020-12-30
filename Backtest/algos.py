@@ -1,8 +1,11 @@
 import pandas as pd
+import datetime as dt
 
 def time_frame_set(df, to):
     """
-    Converts dataframe to a desired frequency, then restores original indices, then ffill()
+    Converts dataframe to a desired frequency, then restores original indices, then ffill().
+
+    Supports formats defined by pandas.resample(). https://stackoverflow.com/questions/17001389/pandas-resample-documentation
     """
     # ! currently converting to weekly uses Friday as last day. Might give bugs if friday does not exist in original dataframe.
     # TODO: when converting minute to daily, time drops, which results in NaNs when restoring index. Gotta find better TimeFrameExpand
@@ -31,11 +34,27 @@ def time_frame_set(df, to):
 
 def time_frame_restore(current_asset, df_modif):
     restore_orig_index = pd.DataFrame(index=current_asset.index)
-    temp = pd.DataFrame(df_modif.values, index=df_modif.index.date)
-    temp.reset_index(inplace=True)
-    restore_orig_index["index"] = current_asset.index.date
-    restore_orig_index = restore_orig_index.merge(temp, how="left", on="index")
-    restore_orig_index.set_index(current_asset.index, inplace=True)
+
+    # assuming that df_modif was set to daily data -> daily timestamp will have time 00:00:00.
+    # ? havent tested restore from weekly
+    if df_modif.index[0].time() == dt.time(0, 0): 
+        # ? possibly worth adding pd.Timedelta(hours=9, minutes=30) when doing time_frame_set
+        # ? then do ffill like in else part
+        temp = pd.DataFrame(df_modif.values, index=df_modif.index.date)
+        temp.reset_index(inplace=True)
+        temp.rename(columns={temp.columns[0]:"index"}, inplace=True)
+        restore_orig_index["index"] = current_asset.index.date
+        restore_orig_index = restore_orig_index.merge(temp, how="left", on="index")
+        restore_orig_index.set_index(current_asset.index, inplace=True)
+    else:
+        temp = pd.DataFrame(df_modif.values, index=df_modif.index)
+        temp.reset_index(inplace=True)
+        temp.rename(columns={temp.columns[0]:"index"}, inplace=True)
+        restore_orig_index["index"] = current_asset.index
+        restore_orig_index = restore_orig_index.merge(temp, how="left", on="index")
+        restore_orig_index.ffill(inplace=True)
+        restore_orig_index.set_index(current_asset.index, inplace=True)
+
     restore_orig_index.drop("index", axis=1, inplace=True)
     if type(df_modif) == pd.Series:
         # restore_orig_index.columns = [df_modif.name]
@@ -50,7 +69,7 @@ def stop_time(df, hour=0, minute=0, second=0):
     For now supports only hour, minute, and second. 
     """
     # TODO: impove flexibility. Now requires all 3 parameters to be passed.
-    import datetime as dt
+    
     stop = df.index.time == dt.time(hour, minute, second)
     stop = pd.Series(stop, index=df.index)
     return stop

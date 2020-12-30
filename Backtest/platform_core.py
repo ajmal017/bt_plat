@@ -33,13 +33,15 @@ class Backtest():
         self.port = Portfolio()
         self.agg_trans_prices = Agg_TransPrice()
         self.agg_trades = Agg_Trades()
+        self.agg_custom_stop = pd.DataFrame()
+        self.custom_stop_size = None
         self.trade_list = None
-        self.log = logging.getLogger("Backtester")
-        self.log.info("Backtester started!")
-        self.in_trade = {"long":0, "short":0}
+        # self.in_trade = {"long":0, "short":0}
         self.universe_ranking = pd.DataFrame()
         self.real_time = real_time
-        self.keys = None
+        self.keys = None        
+        self.log = logging.getLogger("Backtester")
+        self.log.info("Backtester started!")
 
     def preprocessing(self, data):
         """
@@ -91,11 +93,12 @@ class Backtest():
         # because of that, summing volume will produce wrong result
         temp["Volume"] = data[name]["Volume"].groupby("Date").sum()
 
-        # getting all but last candle. This is done to avoid incomplete bars at runtime
-        if pd.Timestamp(self.runs_at.replace(second=0, microsecond=0)) == temp.iloc[-1].name:
-            temp = temp.loc[:self.runs_at].iloc[:-1]
-            self.log.warning(f"Last bars for {name} {self.runs_at} were cut during data prep")
-        # data[name] = temp
+        if Settings.use_complete_candles_only:
+            # getting all but last candle. This is done to avoid incomplete bars at runtime
+            if pd.Timestamp(self.runs_at.replace(second=0, microsecond=0)) == temp.iloc[-1].name:
+                temp = temp.loc[:self.runs_at].iloc[:-1]
+                self.log.warning(f"Last bars for {name} {self.runs_at} were cut during data prep")
+            # data[name] = temp
         return temp 
             
 
@@ -166,16 +169,23 @@ class Backtest():
                                                                 trades_current_asset.priceFluctuation_dollar)
         self.agg_trades.trades = _aggregate(self.agg_trades.trades, trades_current_asset.trades, ax=0)
 
+        # save custom stops
+        if Settings.position_size_type == "custom":
+            self.agg_custom_stop =  _prep_and_agg_custom_stops(self.agg_custom_stop, self.custom_stop_size, name)
+
     def _run_portfolio(self, data):
         """
         Calculate profit and loss for the strategy
         """
         if Settings.backtest_engine.lower() == "pandas":
+            # ! add break condition before loop so dont waste time reading data
             for name in data.keys:
                 _current_asset_tuple = data.read_data(name)
-                self.preprocessing(_current_asset_tuple)
                 if self.preprocessing(_current_asset_tuple) == "break": # in case prepricessing is just pass
                     break
+                else:
+                    self.preprocessing(_current_asset_tuple)
+                
 
             for name in data.keys:    
                 _current_asset_tuple = data.read_data(name)
@@ -292,7 +302,7 @@ class Backtest():
             self.agg_trades.in_trade_price_fluc[current_bar_int] = (self.agg_trades.priceFluctuation_dollar.iloc[
                 current_bar_int] * self.port.weights[current_bar_int]).values
 
-            # update avail amount for day's gain/loss            
+            # update avail amount for bar's gain/loss            
             self._update_for_fluct_np(self.port.avail_amount, self.agg_trades.in_trade_price_fluc, current_bar, prev_bar, current_bar_int)
             self._update_for_fluct_np(self.port.value, self.agg_trades.in_trade_price_fluc, current_bar, prev_bar, current_bar_int)
 
@@ -300,27 +310,33 @@ class Backtest():
         self._generate_trade_list()
 
     def _execute_buy(self, current_bar, current_bar_int):
-        self.in_trade["long"] = 1
-        # find amount to be invested
-        to_invest = self.port.value[current_bar_int] * Settings.pct_invest
+        # # self.in_trade["long"] = 1
+        # # find amount to be invested
+        # to_invest = self.port.value[current_bar_int] * Settings.pct_invest
 
-        # find assets that need allocation
-        # those that dont have buyPrice for that day wil have NaN
-        # drop them, keep those that have values
-        affected_assets = _find_affected_assets(self.agg_trans_prices.buyPrice, current_bar)
+        # # find assets that need allocation
+        # # those that dont have buyPrice for that day wil have NaN
+        # # drop them, keep those that have values
+        # affected_assets = _find_affected_assets(self.agg_trans_prices.buyPrice, current_bar)
 
-        # find current bar, affected assets
-        # allocate shares to all assets = invested amount/buy price
-        rounded_weights = to_invest / self.agg_trans_prices.buyPrice.loc[
-            current_bar, affected_assets]
-        rounded_weights = rounded_weights.mul(
-            10**Settings.round_to_decimals).apply(np.floor).div(
-                10**Settings.round_to_decimals)
-        self.port.weights[current_bar_int][affected_assets] = rounded_weights
+        # # find current bar, affected assets
+        # # allocate shares to all assets = invested amount/buy price
+        # rounded_weights = to_invest / self.agg_trans_prices.buyPrice.loc[
+        #     current_bar, affected_assets]
+        # rounded_weights = rounded_weights.mul(
+        #     10**Settings.round_to_decimals).apply(np.floor).div(
+        #         10**Settings.round_to_decimals)
+        if self.real_time:
+            to_invest = Settings.start_amount
+        else:
+            to_invest = self.port.value[current_bar_int]
+
+        rounded_weights, affected_assets = self._position_sizer(to_invest, self.agg_trans_prices.buyPrice, current_bar)
+
+        self.port.weights[current_bar_int][affected_assets] = rounded_weights        
 
         # find actualy amount invested
         # TODO: adjust amount invested. Right now assumes all intended amount is allocated.
-        # ? avail amount doesnt get adjusted for daily fluc?
         actually_invested = self.port.weights[current_bar_int][affected_assets] * self.agg_trans_prices.buyPrice.loc[
                 current_bar, affected_assets]
 
@@ -332,7 +348,7 @@ class Backtest():
         set weight to 0
         update avail amount
         """
-        self.in_trade["long"] = 0
+        # self.in_trade["long"] = 0
         #? prob need to change this part for scaling implementation
 
         # find assets that need allocation
@@ -347,27 +363,31 @@ class Backtest():
         self.port.weights[current_bar_int][affected_assets] = 0
 
     def _execute_short(self, current_bar, current_bar_int):
-        self.in_trade["short"] = 1
+        # self.in_trade["short"] = 1
         # find amount to be invested
-        to_invest = self.port.value[current_bar_int] * Settings.pct_invest
+        if self.real_time:
+            to_invest = Settings.start_amount
+        else:
+            to_invest = self.port.value[current_bar_int]
 
-        # find assets that need allocation
-        # those that dont have shortPrice for that day wil have NaN
-        # drop them, keep those that have values
-        affected_assets = _find_affected_assets(self.agg_trans_prices.shortPrice, current_bar)
+        # # find assets that need allocation
+        # # those that dont have shortPrice for that day wil have NaN
+        # # drop them, keep those that have values
+        # affected_assets = _find_affected_assets(self.agg_trans_prices.shortPrice, current_bar)
 
-        # find current bar, affected assets
-        # allocate shares to all assets = invested amount/buy price
-        rounded_weights = to_invest / self.agg_trans_prices.shortPrice.loc[
-            current_bar, affected_assets]
-        rounded_weights = rounded_weights.mul(
-            10**Settings.round_to_decimals).apply(np.floor).div(
-                10**Settings.round_to_decimals)
+        # # find current bar, affected assets
+        # # allocate shares to all assets = invested amount/buy price
+        # rounded_weights = to_invest / self.agg_trans_prices.shortPrice.loc[
+        #     current_bar, affected_assets]
+        # rounded_weights = rounded_weights.mul(
+        #     10**Settings.round_to_decimals).apply(np.floor).div(
+        #         10**Settings.round_to_decimals)
+        rounded_weights, affected_assets = self._position_sizer(to_invest, self.agg_trans_prices.shortPrice, current_bar)
+
         self.port.weights[current_bar_int][affected_assets] = -rounded_weights
 
         # find actualy amount invested
         # TODO: adjust amount invested. Right now assumes all intended amount is allocated.
-        # ? avail amount doesnt get adjusted for daily fluc?
         actually_invested = self.port.weights[current_bar_int][affected_assets] * self.agg_trans_prices.shortPrice.loc[
                 current_bar, affected_assets]
 
@@ -379,11 +399,11 @@ class Backtest():
         set weight to 0
         update avail amount
         """
-        self.in_trade["short"] = 0
+        # self.in_trade["short"] = 0
         #? prob need to change this part for scaling implementation
 
         # find assets that need allocation
-        # those that dont have coverPrice for that day wil have NaN
+        # those that dont have coverPrice for that day will have NaN
         # drop them, keep those that have values
         affected_assets = _find_affected_assets(self.agg_trans_prices.coverPrice, current_bar)
         self.port.avail_amount[current_bar_int] += (self.port.weights[current_bar_int][
@@ -405,6 +425,72 @@ class Backtest():
 
         if (current_bar in self.agg_trans_prices.coverPrice.index):# and (self.in_trade["short"]==1):
             self._execute_cover(current_bar, current_bar_int)
+
+    def _position_sizer(self, port_value, trans_prices, current_bar):
+        if Settings.position_size_type == "pct":
+            # $ amount
+            to_invest = port_value * Settings.pct_invest
+
+            affected_assets = _find_affected_assets(trans_prices, current_bar)
+
+            # find current bar, affected assets
+            # allocate shares to all assets = invested amount/buy price
+            rounded_weights = to_invest / trans_prices.loc[
+                current_bar, affected_assets]
+            rounded_weights = rounded_weights.mul(
+                10**Settings.round_to_decimals).apply(np.floor).div(
+                    10**Settings.round_to_decimals)
+
+            # actually_invested = rounded_weights * trans_prices.loc[current_bar, affected_assets]
+
+            return rounded_weights, affected_assets
+
+        elif Settings.position_size_type == "share":
+            # # of shares
+            affected_assets = _find_affected_assets(trans_prices, current_bar)
+
+            # actually_invested = Settings.position_size_value * trans_prices.loc[
+            #         current_bar, affected_assets]
+
+            return Settings.position_size_value, affected_assets
+
+        elif Settings.position_size_type == "amount":
+            # $ amount
+            to_invest = Settings.position_size_value
+
+            affected_assets = _find_affected_assets(trans_prices, current_bar)
+
+            # find current bar, affected assets
+            # allocate shares to all assets = invested amount/buy price
+            rounded_weights = to_invest / trans_prices.loc[
+                current_bar, affected_assets]
+            rounded_weights = rounded_weights.mul(
+                10**Settings.round_to_decimals).apply(np.floor).div(
+                    10**Settings.round_to_decimals)
+
+            # actually_invested = rounded_weights * trans_prices.loc[current_bar, affected_assets]
+
+            return rounded_weights, affected_assets
+
+        elif Settings.position_size_type == "custom":
+            # ! not finished.
+            # Naan == True
+            affected_assets = _find_affected_assets(trans_prices, current_bar)
+            to_invest = self.agg_custom_stop.loc[current_bar, affected_assets] * port_value
+            # affected_assets_tp = trans_prices.loc[current_bar, affected_assets]
+            # find current bar, affected assets
+            # allocate shares to all assets = invested amount/buy price
+            # 0.03 * 18 / 2 = 0.27 or 27%
+            # pct_equity_to_invest = (Settings.position_size_value * affected_assets_tp) / atr
+            # 0.27 * 90,000 = trade size of 24,300 / share price = #number of share
+            rounded_weights = to_invest / trans_prices.loc[current_bar, affected_assets]
+            rounded_weights = rounded_weights.mul(
+                10**Settings.round_to_decimals).apply(np.floor).div(
+                    10**Settings.round_to_decimals)
+
+            # actually_invested = rounded_weights * affected_assets
+            
+            return rounded_weights, affected_assets
 
     def _check_trade_list(self):
         pass
@@ -556,11 +642,11 @@ class TradeSignal:
 
         # keeping it here for now
         # TODO: move it somewhere else (postprocess/logic)
-        from Backtest.indicators import ATR
-        atr = ATR(rep.data, 14)
+        # from Backtest.indicators import ATR
+        # atr = ATR(rep.data, 14)
 
-        self._apply_stop("buy", self.buyCond, rep, atr()*2)
-        self._apply_stop("short", self.shortCond, rep, atr()*2)
+        # self._apply_stop("buy", self.buyCond, rep, atr()*2)
+        # self._apply_stop("short", self.shortCond, rep, atr()*2)
 
         self.sellCond = _find_signals(rep.allCond["Sell"])
         self.coverCond = _find_signals(rep.allCond["Cover"])
@@ -840,6 +926,15 @@ def _find_affected_assets(df, current_bar):
 
 def _aggregate(agg_df, df, ax=1):
     return pd.concat([agg_df, df], axis=ax)  
+
+def _prep_and_agg_custom_stops(agg_df, df, name, ax=1):
+    df.name = name
+    # replace pos and neg inf that might result if C==L, in which case we dont want to allocate anything
+    df.replace(np.Inf, 0, inplace=True)
+    df.replace(-np.Inf, 0, inplace=True)
+    
+    df2 = _aggregate(agg_df, df, ax)
+    return df2
 
 def _find_df(df, name):
     for i in range(len(df)):
