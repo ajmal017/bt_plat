@@ -3,24 +3,24 @@ import numpy as np
 import os
 import abc
 import logging
-import traceback
-import pyspark
-import pyspark.sql.functions as pySqlFunc
-from pyspark.sql.functions import col
-from pyspark.sql.window import Window
+# import traceback
+# for testing
+from datetime import datetime as dt
 
 # own files
 from Backtest.indicators import SMA
 from Backtest.data_reader import DataReader
-from auto_trading.automated_trading import _setup_log
-# import database_stuff as db
-from Backtest import config
+from auto_trading.log import setup_log
 from Backtest import Settings
 
-# for testing
-from datetime import datetime as dt
+if Settings.backtest_engine.lower() == "spark":
+    import pyspark
+    import pyspark.sql.functions as pySqlFunc
+    from pyspark.sql.functions import col
+    from pyspark.sql.window import Window
+    
 
-_setup_log("Backtester")
+setup_log("Backtester")
 #############################################
 # Core starts
 #############################################
@@ -41,13 +41,13 @@ class Backtest():
         self.real_time = real_time
         self.keys = None        
         self.log = logging.getLogger("Backtester")
-        self.log.info("Backtester started!")
+        
 
     def preprocessing(self, data):
         """
         Called once before running through the data.
         Should be used to generate values that need to be known prior running logic such as ranking among asset classes.
-        For example, if we want to know top 10 momentum stocks every month or stocks above 200 MA, this data can be generated at this stage.
+        For example, if we want to know top 10 momentum stocks every month or highest stocks above 200 MA, this data can be generated at this stage.
 
         Inputs: self + all data that will be used for the backtest
         """
@@ -71,15 +71,15 @@ class Backtest():
 
             self._run_portfolio(data)
         except Exception as e:
-            print(e)
-            traceback.print_exc()
+            # print(e)
+            # traceback.print_exc()
             self.log.error(e, stack_info=True)
             
     def logic(self, current_asset, name=None):
         pass
 
     def _prepare_data(self, data, name):
-        self.log.info(f"Preparing data for {self.runs_at}")
+        self.log.info(f"Preparing data for {name} - {self.runs_at}")
         # for name in data:
         temp = pd.DataFrame(columns=data[name].columns)
         temp.index.name = "Date"
@@ -177,6 +177,7 @@ class Backtest():
         """
         Calculate profit and loss for the strategy
         """
+        self.log.info("Backtester started!")
         if Settings.backtest_engine.lower() == "pandas":
             # ! add break condition before loop so dont waste time reading data
             for name in data.keys:
@@ -568,7 +569,7 @@ class Backtest():
             weights = self.port.weights[dates_locs, asset_loc]
 
             self.trade_list.loc[idx, "Weight"] = weights
-        # change values to display positive for short trades (isntead of negative shares)
+        # change values to display positive for short trades (instead of negative shares)
         self.trade_list["Weight"] = np.where(self.trade_list.Direction=="Long", 
                                     self.trade_list["Weight"], -self.trade_list["Weight"])
 
